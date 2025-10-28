@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>存量主体管理 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .modal-mask { background-color: rgba(0,0,0,0.3); }
+  </style>
+  </head>
+<body class="bg-gray-50">
+  <div class="flex">
+    <div id="sidebar"></div>
+    <main id="main" class="flex-1 p-6 ml-64">
+      <h1 class="text-xl font-semibold mb-4">存量主体管理</h1>
+      <div class="flex items-center gap-3 mb-4">
+        <input id="kw" placeholder="按名称/ID搜索" class="border rounded px-3 py-2" />
+        <select id="statusFilter" class="border rounded px-3 py-2">
+          <option value="">全部状态</option>
+          <option>未经审查</option>
+          <option>审查中</option>
+          <option>待审核</option>
+          <option>已退回</option>
+          <option>已完成</option>
+          <option>已失效</option>
+        </select>
+        <select id="regionFilter" class="border rounded px-3 py-2">
+          <option value="">全部地区</option>
+          <option value="HK">香港</option>
+          <option value="SG">新加坡</option>
+          <option value="AE">阿联酋</option>
+          <option value="CN">中国内地</option>
+          <option value="US">美国</option>
+          <option value="GB">英国</option>
+        </select>
+      </div>
+      <div class="bg-white rounded-xl shadow overflow-hidden">
+        <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-100 text-gray-700">
+            <tr>
+              <th class="text-left px-4 py-2">地区</th>
+              <th class="text-left px-4 py-2">主体ID</th>
+              <th class="text-left px-4 py-2">主体名称</th>
+              <th class="text-left px-4 py-2">风险等级</th>
+              <th class="text-left px-4 py-2">状态</th>
+              <th class="text-left px-4 py-2">操作</th>
+              <th class="text-left px-4 py-2">报告</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script src="./assets/js/ui.js"></script>
+  <script>
+    const user = Proto.requireAuth();
+    UI.renderSidebar('sidebar');
+    const tbody = document.getElementById('tbody');
+
+    function render() {
+      const subjects = Proto.LS.get('proto_subjects', []);
+      const kw = (document.getElementById('kw').value||'').trim();
+      const sf = document.getElementById('statusFilter').value;
+      const rf = document.getElementById('regionFilter').value;
+      const list = subjects.filter(s => {
+        if (kw && !(s.id.includes(kw) || (s.basic.name||'').includes(kw))) return false;
+        if (sf && s.status !== sf) return false;
+        if (rf && s.basic.region !== rf) return false;
+        return true;
+      });
+      tbody.innerHTML = list.map(s => {
+        const rating = s?.score?.rating || '-';
+        return `
+        <tr class="border-t">
+          <td class="px-4 py-2">${s.basic.region}</td>
+          <td class="px-4 py-2">${s.id}</td>
+          <td class="px-4 py-2">${s.basic.name}</td>
+          <td class="px-4 py-2">${rating}</td>
+          <td class="px-4 py-2">${UI.statusBadge(s.status)}</td>
+          <td class="px-4 py-2">
+            <a class="text-blue-600 hover:underline" href="./subject.html?subjectId=${s.id}">进入审查</a>
+          </td>
+          <td class="px-4 py-2">
+            <a href="#" data-id="${s.id}" class="text-blue-600 hover:underline">点击查看</a>
+          </td>
+        </tr>`;
+      }).join('');
+
+      tbody.querySelectorAll('a[data-id]').forEach(a => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const id = a.getAttribute('data-id');
+        const s = Proto.LS.get('proto_subjects', []).find(x=>x.id===id);
+        if (!s) return;
+        showReportModal(s);
+      }));
+    }
+
+    function showReportModal(subject) {
+      const notOk = subject.checklist.filter(x => x.conclusion === '不符合');
+      const allowExport = subject.status === '已完成';
+      const detailRows = subject.checklist.map(x => `
+        <tr class=\"border-t align-top\">
+          <td class=\"px-3 py-2\">${x.domain}</td>
+          <td class=\"px-3 py-2\">${x.subdomain}</td>
+          <td class=\"px-3 py-2\">${x.item}</td>
+          <td class=\"px-3 py-2\">${x.basis}</td>
+          <td class=\"px-3 py-2\">${x.mustFinal}</td>
+          <td class=\"px-3 py-2\">${x.riskLevel}</td>
+          <td class=\"px-3 py-2\">${x.weight}</td>
+          <td class=\"px-3 py-2\">${x.conclusion || '-'}</td>
+          <td class=\"px-3 py-2\">${x.remark || '-'}</td>
+          <td class=\"px-3 py-2\">${(x.files||[]).map(f=>f.name).join('、')||'-'}</td>
+        </tr>
+      `).join('');
+      const reportBody = `
+        <div id=\"reportBody\" class=\"bg-white rounded-xl p-0\">
+          <div class=\"text-gray-500 mb-4\">生成时间：${Proto.formatDateTime(new Date().toISOString())}</div>
+          <div class=\"mb-3\">状态：${UI.statusBadge(subject.status)}</div>
+          <div class=\"grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-6\">
+            <div><span class=\"text-gray-500\">主体：</span>${subject.basic.name}</div>
+            <div><span class=\"text-gray-500\">主体ID：</span>${subject.id}</div>
+            <div><span class=\"text-gray-500\">注册地：</span>${subject.basic.region}</div>
+            <div><span class=\"text-gray-500\">成立时间：</span>${subject.basic.estDate || '-'}</div>
+            <div><span class=\"text-gray-500\">涉及发行业务：</span>${subject.basic.issuerBiz}</div>
+            <div><span class=\"text-gray-500\">最终评级：</span>${subject.score.rating}</div>
+            <div><span class=\"text-gray-500\">风险总分：</span>${subject.score.percent}</div>
+            <div><span class=\"text-gray-500\">审查人：</span>${subject.createdBy}</div>
+            <div><span class=\"text-gray-500\">最近一次审查时间：</span>${Proto.formatDateTime(subject.updatedAt)}</div>
+            <div><span class=\"text-gray-500\">复核人：</span>${subject.review?.by || '-'}</div>
+            <div><span class=\"text-gray-500\">最近一次复核时间：</span>${subject.review?.at ? Proto.formatDateTime(subject.review.at) : '-'}</div>
+            <div><span class=\"text-gray-500\">最近一次评估时间：</span>${Proto.formatDateTime(new Date().toISOString())}</div>
+          </div>
+          <div class=\"mb-4 text-lg font-semibold\">风险概要</div>
+          ${notOk.length ? `
+            <ul class=\"list-disc ml-6 mb-6 text-sm\">
+              ${notOk.map(x => `<li>${x.domain}/${x.subdomain} - ${x.item}（${x.basis}）</li>`).join('')}
+            </ul>
+          ` : '<div class=\"text-sm text-gray-600 mb-6\">无不符合项</div>'}
+          <div class=\"mb-2 text-lg font-semibold\">审查详情</div>
+          <div class=\"overflow-x-auto\">
+            <table class=\"min-w-full text-sm\">
+              <thead class=\"bg-gray-100 text-gray-700 sticky top-0\">
+                <tr>
+                  <th class=\"text-left px-3 py-2\">领域</th>
+                  <th class=\"text-left px-3 py-2\">子领域</th>
+                  <th class=\"text-left px-3 py-2\">项目</th>
+                  <th class=\"text-left px-3 py-2\">依据</th>
+                  <th class=\"text-left px-3 py-2\">必须性</th>
+                  <th class=\"text-left px-3 py-2\">风险</th>
+                  <th class=\"text-left px-3 py-2\">权重</th>
+                  <th class=\"text-left px-3 py-2\">结论</th>
+                  <th class=\"text-left px-3 py-2\">备注</th>
+                  <th class=\"text-left px-3 py-2\">证明文件</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${detailRows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+      const html = `
+      <div class=\"fixed inset-0 modal-mask flex items-center justify-center\">
+        <div class=\"bg-white rounded-xl shadow p-4 w-[1000px] max-h-[85vh] overflow-y-auto\">
+          <div class=\"flex items-center justify-between mb-2\">
+            <div class=\"text-lg font-semibold\">${subject.id}｜${subject.basic.name} 风险评估报告</div>
+            <button id=\"dlgClose\" class=\"px-2 py-1 border rounded\">关闭</button>
+          </div>
+          <div id=\"modalReport\">${reportBody}</div>
+          <div class=\"mt-4 text-right\">
+            <button id=\"exportBtn\" class=\"bg-green-600 hover:bg-green-700 text-white rounded px-4 py-2\">导出 PDF</button>
+          </div>
+        </div>
+      </div>`;
+      const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      document.body.appendChild(wrap);
+      wrap.querySelector('#dlgClose').addEventListener('click', ()=>document.body.removeChild(wrap));
+      const btn = wrap.querySelector('#exportBtn');
+      btn.addEventListener('click', () => {
+        if (!allowExport) { alert('该主体未完成风险审查'); return; }
+        const body = wrap.querySelector('#modalReport').innerHTML;
+        const w = window.open('', '_blank');
+        if (!w) { alert('请允许弹出窗口以导出PDF'); return; }
+        w.document.write('<html><head><meta charset="utf-8"/><title>'+ (subject.basic.name||'报告') +'</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"></head><body>'+ body +'</body></html>');
+        w.document.close();
+        w.onload = () => { w.focus(); setTimeout(()=>{ try { w.print(); } catch(e){} }, 100); };
+      });
+    }
+
+    document.getElementById('kw').addEventListener('input', render);
+    document.getElementById('statusFilter').addEventListener('change', render);
+    document.getElementById('regionFilter').addEventListener('change', render);
+    render();
+  </script>
+</body>
+</html>
+
+

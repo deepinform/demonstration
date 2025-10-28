@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>主体详情 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="flex">
+    <div id="sidebar"></div>
+    <main id="main" class="flex-1 p-6 ml-64">
+      <div class="flex items-start justify-between">
+        <h1 class="text-xl font-semibold mb-4">主体详情</h1>
+        <div id="scorePanel" class="bg-white rounded-xl shadow px-4 py-2">
+          <div class="text-sm text-gray-500">风险总分</div>
+          <div class="text-2xl font-semibold" id="scorePercent">-</div>
+          <div class="text-sm">评级：<span id="scoreRating">-</span></div>
+        </div>
+      </div>
+
+      <div id="basic" class="bg-white rounded-xl shadow p-4 mb-6"></div>
+
+      <div class="bg-white rounded-xl shadow p-4 mb-3">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-3 text-sm">
+          <select id="fDomain" class="border rounded px-3 py-2"><option value="">领域：全部</option></select>
+          <select id="fSubdomain" class="border rounded px-3 py-2"><option value="">子领域：全部</option></select>
+          <select id="fMust" class="border rounded px-3 py-2">
+            <option value="">必须性：全部</option>
+            <option value="必须">必须</option>
+            <option value="非必须">非必须</option>
+          </select>
+          <select id="fRisk" class="border rounded px-3 py-2">
+            <option value="">风险：全部</option>
+            <option value="高">高</option>
+            <option value="中">中</option>
+            <option value="低">低</option>
+          </select>
+          <div class="flex items-center gap-2">
+            <button id="selectAll" class="px-3 py-2 border rounded">全选当前筛选</button>
+            <button id="clearSel" class="px-3 py-2 border rounded">清空选择</button>
+          </div>
+        </div>
+        <div id="bulkOps" class="mt-3 flex items-center gap-2">
+          <button id="bulkOk" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-3 py-2">批量设为符合</button>
+          <button id="bulkNotOk" class="bg-red-600 hover:bg-red-700 text-white rounded px-3 py-2">批量设为不符合</button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow">
+        <div id="listScroll" class="overflow-x-auto overflow-y-auto max-h-[60vh]" style="touch-action: pan-x pan-y; overscroll-behavior: contain;">
+        <table class="min-w-[1400px] text-sm">
+          <thead class="bg-gray-100 text-gray-700 sticky top-0 z-10">
+            <tr>
+              <th class="px-3 py-2"><input type="checkbox" id="checkAll" /></th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">领域</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">子领域</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">审查项目</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">依据</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">必须性</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">风险</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">权重</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">结论</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">备注</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">证明文件</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">复核结论</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">复核意见</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">复核时间</th>
+              <th class="text-left px-3 py-2 whitespace-nowrap">复核人</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+
+      <div class="mt-4 flex gap-3" id="actions">
+        <button id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2">保存</button>
+        <button id="submitBtn" class="bg-amber-600 hover:bg-amber-700 text-white rounded px-4 py-2">提交审核</button>
+      </div>
+    </main>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script src="./assets/js/ui.js"></script>
+  <script>
+    const user = Proto.requireAuth();
+    UI.renderSidebar('sidebar');
+    const subjectId = Proto.getQueryParam('subjectId');
+    const subjects = Proto.LS.get('proto_subjects', []);
+    const subject = subjects.find(s => s.id === subjectId);
+    if (!subject) {
+      alert('主体不存在');
+      window.location.href = './dashboard.html';
+    }
+    const readOnly = (user.role !== 'Analyst') || (subject.status === '待审核') || (subject.status === '已完成') || (subject.status === '已失效');
+
+    function calcScore() {
+      const totalWeight = subject.checklist.reduce((s, it) => s + (it.weight || 0), 0);
+      const earned = subject.checklist.reduce((s, it) => s + ((it.conclusion === '符合' ? 1 : 0) * (it.weight || 0)), 0);
+      const percent = totalWeight > 0 ? Math.round((earned / totalWeight) * 100) : 0;
+      let rating = '-';
+      if (percent < 80) rating = '高风险'; else if (percent < 90) rating = '中风险'; else rating = '低风险';
+      subject.score = { totalWeight, earned, percent, rating };
+      document.getElementById('scorePercent').textContent = String(percent);
+      document.getElementById('scoreRating').textContent = rating;
+    }
+
+    function renderBasic() {
+      const b = subject.basic;
+      document.getElementById('basic').innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <div><span class="text-gray-500">主体ID：</span>${subject.id}</div>
+          <div><span class="text-gray-500">主体名称：</span>${b.name}</div>
+          <div><span class="text-gray-500">注册地：</span>${b.region}</div>
+          <div><span class="text-gray-500">审查状态：</span>${UI.statusBadge(subject.status)}</div>
+          <div><span class="text-gray-500">成立时间：</span>${b.estDate || '-'}</div>
+          <div><span class="text-gray-500">规模：</span>${b.size || '-'}</div>
+          <div><span class="text-gray-500">联系方式：</span>${b.contact || '-'}</div>
+          <div><span class="text-gray-500">网站：</span>${b.website || '-'}</div>
+          <div><span class="text-gray-500">邮箱：</span>${b.email || '-'}</div>
+          <div><span class="text-gray-500">地址：</span>${b.address || '-'}</div>
+          <div><span class="text-gray-500">涉及发行业务：</span>${b.issuerBiz}</div>
+        </div>`;
+      // Analyst 且已完成显示重新发起审核按钮
+      if (user.role === 'Analyst' && subject.status === '已完成') {
+        const btn = document.createElement('button');
+        btn.className = 'mt-3 bg-amber-600 hover:bg-amber-700 text-white rounded px-4 py-2';
+        btn.textContent = '重新发起审核';
+        btn.addEventListener('click', () => {
+          const html = `
+            <div class="fixed inset-0 bg-black/30 flex items-center justify-center">
+              <div class="bg-white rounded-xl shadow p-4 w-[520px]">
+                <div class="text-lg font-semibold mb-2">确认</div>
+                <div class="text-sm text-gray-700 mb-3">重新发起审核后当前主体评级将失效，是否继续？</div>
+                <div class="mb-3">
+                  <textarea id="applyText" class="border rounded p-2 w-full h-24" placeholder="请填写申请理由（可选）"></textarea>
+                </div>
+                <div class="text-right space-x-2">
+                  <button id="dlgCancel" class="px-3 py-2 border rounded">取消</button>
+                  <button id="dlgOk" class="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded">确定</button>
+                </div>
+              </div>
+            </div>`;
+          const wrap = document.createElement('div');
+          wrap.innerHTML = html;
+          document.body.appendChild(wrap);
+          // 提升弹窗层级，避免被表头遮挡
+          wrap.firstElementChild.style.zIndex = '50';
+          wrap.querySelector('#dlgCancel').addEventListener('click', ()=>document.body.removeChild(wrap));
+          wrap.querySelector('#dlgOk').addEventListener('click', ()=>{
+            const txt = wrap.querySelector('#applyText').value || '';
+            Proto.Messages.push({ type:'reAudit', subjectId: subject.id, by: user.username, toRole: 'Manager', content: `对${subject.basic.name}主体的重新审核申请`, status: '待审批', meta:{ applyText: txt } });
+            document.body.removeChild(wrap);
+            alert('已经提交重新审核申请');
+          });
+        });
+        document.getElementById('basic').appendChild(btn);
+      }
+    }
+
+    function getDomains() { return [...new Set(subject.checklist.map(x => x.domain))]; }
+    function getSubdomains(domain) { return [...new Set(subject.checklist.filter(x => !domain || x.domain===domain).map(x => x.subdomain))]; }
+
+    function applyFilters(list) {
+      const fDomain = document.getElementById('fDomain').value;
+      const fSub = document.getElementById('fSubdomain').value;
+      const fMust = document.getElementById('fMust').value;
+      const fRisk = document.getElementById('fRisk').value;
+      return list.filter(x => {
+        if (fDomain && x.domain !== fDomain) return false;
+        if (fSub && x.subdomain !== fSub) return false;
+        if (fMust && x.mustFinal !== fMust) return false;
+        if (fRisk && x.riskLevel !== fRisk) return false;
+        return true;
+      });
+    }
+
+    let currentSelection = new Set();
+
+    function renderFilters() {
+      const domSel = document.getElementById('fDomain');
+      const subSel = document.getElementById('fSubdomain');
+      const domains = getDomains();
+      const curDom = domSel.value;
+      domSel.innerHTML = '<option value="">领域：全部</option>' + domains.map(d => `<option ${d===curDom?'selected':''}>${d}</option>`).join('');
+      const subs = getSubdomains(curDom);
+      const curSub = subSel.value;
+      subSel.innerHTML = '<option value="">子领域：全部</option>' + subs.map(s => `<option ${s===curSub?'selected':''}>${s}</option>`).join('');
+    }
+
+    function renderTable() {
+      const tb = document.getElementById('tbody');
+      const rows = applyFilters(subject.checklist).map((it) => {
+        const idx = subject.checklist.indexOf(it);
+        const checked = currentSelection.has(idx) ? 'checked' : '';
+        return `
+        <tr class="border-t align-top">
+          <td class="px-3 py-2"><input type="checkbox" data-idx="${idx}" ${checked} ${readOnly?'disabled':''} /></td>
+          <td class="px-3 py-2">${it.domain}</td>
+          <td class="px-3 py-2">${it.subdomain}</td>
+          <td class="px-3 py-2">${it.item}</td>
+          <td class="px-3 py-2">${it.basis}</td>
+          <td class="px-3 py-2">${it.mustFinal}</td>
+          <td class="px-3 py-2">${UI.riskBadge(it.riskLevel)}</td>
+          <td class="px-3 py-2">${it.weight}</td>
+          <td class="px-3 py-2">
+            <select data-idx="${idx}" class="border rounded px-2 py-1" ${readOnly?'disabled':''}>
+              <option value="">选择</option>
+              <option ${it.conclusion==='符合'?'selected':''}>符合</option>
+              <option ${it.conclusion==='不符合'?'selected':''}>不符合</option>
+            </select>
+          </td>
+          <td class="px-3 py-2">
+            <textarea data-idx="${idx}" class="border rounded p-2 w-64 h-16" placeholder="备注" ${readOnly?'disabled':''}>${it.remark||''}</textarea>
+          </td>
+          <td class="px-3 py-2">
+            <input type="file" data-idx="${idx}" ${readOnly?'disabled':''} multiple class="text-xs" />
+            <div class="text-xs text-gray-600 mt-1">${(it.files||[]).map(f=>f.name).join('、')||''}</div>
+          </td>
+          <td class="px-3 py-2">${it.reviewDecision||''}</td>
+          <td class="px-3 py-2">${it.reviewComment||''}</td>
+          <td class="px-3 py-2">${it.reviewAt?Proto.formatDateTime(it.reviewAt):''}</td>
+          <td class="px-3 py-2">${it.reviewBy||''}</td>
+        </tr>`;
+      }).join('');
+      tb.innerHTML = rows;
+
+      if (!readOnly) {
+        tb.querySelectorAll('input[type="checkbox"]').forEach(chk => chk.addEventListener('change', (e) => {
+          const i = Number(e.target.getAttribute('data-idx'));
+          if (e.target.checked) currentSelection.add(i); else currentSelection.delete(i);
+        }));
+        tb.querySelectorAll('select').forEach(sel => sel.addEventListener('change', (e) => {
+          const i = Number(e.target.getAttribute('data-idx'));
+          subject.checklist[i].conclusion = e.target.value;
+          if (subject.status === '未经审查') {
+            subject.status = '审查中';
+            const tasks = Proto.LS.get('proto_tasks', []);
+            const t = tasks.find(x => x.subjectId === subject.id);
+            if (t) Proto.updateTaskStatus(t.id, '审查中', user.username);
+          }
+          calcScore();
+        }));
+        tb.querySelectorAll('textarea').forEach(txt => txt.addEventListener('input', (e) => {
+          const i = Number(e.target.getAttribute('data-idx'));
+          subject.checklist[i].remark = e.target.value;
+          if (subject.status === '未经审查') {
+            subject.status = '审查中';
+            const tasks = Proto.LS.get('proto_tasks', []);
+            const t = tasks.find(x => x.subjectId === subject.id);
+            if (t) Proto.updateTaskStatus(t.id, '审查中', user.username);
+          }
+        }));
+        tb.querySelectorAll('input[type="file"]').forEach(inp => inp.addEventListener('change', (e) => {
+          const i = Number(e.target.getAttribute('data-idx'));
+          const files = Array.from(e.target.files || []).map(f => ({ name: f.name, size: f.size }));
+          subject.checklist[i].files = files;
+          if (subject.status === '未经审查') {
+            subject.status = '审查中';
+            const tasks = Proto.LS.get('proto_tasks', []);
+            const t = tasks.find(x => x.subjectId === subject.id);
+            if (t) Proto.updateTaskStatus(t.id, '审查中', user.username);
+          }
+          renderTable();
+        }));
+      }
+    }
+
+    function saveSubject() {
+      subject.updatedAt = new Date().toISOString();
+      const arr = Proto.LS.get('proto_subjects', []);
+      const idx = arr.findIndex(s => s.id === subject.id);
+      if (idx >= 0) { arr[idx] = subject; Proto.LS.set('proto_subjects', arr); }
+    }
+
+    if (!readOnly) {
+      document.getElementById('saveBtn').addEventListener('click', () => {
+        saveSubject();
+        alert('已保存');
+      });
+    } else {
+      document.getElementById('actions').classList.add('hidden');
+    }
+
+    if (!readOnly) {
+      document.getElementById('submitBtn').addEventListener('click', () => {
+        const missing = subject.checklist.filter(it => it.mustFinal === '必须' && !it.conclusion);
+        if (missing.length) return alert('存在必须项未完成结论，请完善后再提交');
+        subject.status = '待审核';
+        saveSubject();
+        const tasks = Proto.LS.get('proto_tasks', []);
+        const t = tasks.find(x => x.subjectId === subject.id);
+        if (t) {
+          Proto.updateTaskStatus(t.id, '待审核', user.username);
+        }
+        alert('已提交审核');
+        window.location.href = './dashboard.html';
+      });
+    }
+
+    // 过滤和批量操作
+    function bindFilterEvents() {
+      const domSel = document.getElementById('fDomain');
+      const subSel = document.getElementById('fSubdomain');
+      domSel.addEventListener('change', () => { renderFilters(); document.getElementById('fSubdomain').value=''; renderTable(); });
+      subSel.addEventListener('change', renderTable);
+      document.getElementById('fMust').addEventListener('change', renderTable);
+      document.getElementById('fRisk').addEventListener('change', renderTable);
+      if (!readOnly) {
+        document.getElementById('selectAll').addEventListener('click', () => {
+          currentSelection.clear();
+          applyFilters(subject.checklist).forEach(it => currentSelection.add(subject.checklist.indexOf(it)));
+          renderTable();
+        });
+        document.getElementById('clearSel').addEventListener('click', () => { currentSelection.clear(); renderTable(); });
+        document.getElementById('bulkOk').addEventListener('click', () => {
+          currentSelection.forEach(i => subject.checklist[i].conclusion = '符合');
+          calcScore();
+          renderTable();
+        });
+        document.getElementById('bulkNotOk').addEventListener('click', () => {
+          currentSelection.forEach(i => subject.checklist[i].conclusion = '不符合');
+          calcScore();
+          renderTable();
+        });
+        document.getElementById('checkAll').addEventListener('change', (e) => {
+          if (e.target.checked) {
+            currentSelection.clear();
+            applyFilters(subject.checklist).forEach(it => currentSelection.add(subject.checklist.indexOf(it)));
+          } else {
+            currentSelection.clear();
+          }
+          renderTable();
+        });
+      } else {
+        document.getElementById('selectAll').setAttribute('disabled','');
+        document.getElementById('clearSel').setAttribute('disabled','');
+        // 管理员或经理不展示批量按钮
+        const bulk = document.getElementById('bulkOps');
+        if (bulk) bulk.classList.add('hidden');
+        document.getElementById('checkAll').setAttribute('disabled','');
+      }
+    }
+
+    renderBasic();
+    renderFilters();
+    bindFilterEvents();
+    renderTable();
+    calcScore();
+    // 使用原生滚动，不做 JS 拦截；如需禁止整页横向滚动，可在全局样式中设置 html,body { overflow-x: hidden; }
+  </script>
+</body>
+</html>
+
+

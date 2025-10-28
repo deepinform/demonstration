@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>新建主体 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="flex">
+    <div id="sidebar"></div>
+    <main class="flex-1 p-6 ml-64">
+      <h1 class="text-xl font-semibold mb-4">新建主体</h1>
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input id="name" placeholder="主体名称" class="border rounded px-3 py-2" />
+          <select id="region" class="border rounded px-3 py-2">
+            <option value="HK">主体注册地：香港</option>
+            <option value="SG">主体注册地：新加坡</option>
+            <option value="AE">主体注册地：阿联酋</option>
+            <option value="CN">主体注册地：中国内地</option>
+            <option value="US">主体注册地：美国</option>
+            <option value="GB">主体注册地：英国</option>
+          </select>
+          <div>
+            <input id="estDate" type="date" class="border rounded px-3 py-2 w-full" />
+            <div class="text-xs text-gray-500 mt-1">提示：此处日期为主体的成立时间</div>
+          </div>
+          <select id="size" class="border rounded px-3 py-2">
+            <option>规模：小型</option>
+            <option>规模：中型</option>
+            <option>规模：大型</option>
+          </select>
+          <input id="contact" placeholder="联系方式" class="border rounded px-3 py-2" />
+          <input id="website" placeholder="网站" class="border rounded px-3 py-2" />
+          <input id="email" placeholder="邮箱" class="border rounded px-3 py-2" />
+          <input id="address" placeholder="地址" class="border rounded px-3 py-2" />
+          <select id="issuerBiz" class="border rounded px-3 py-2">
+            <option value="否">是否涉及发行业务：否</option>
+            <option value="是">是否涉及发行业务：是</option>
+          </select>
+        </div>
+        <div class="mt-4 flex gap-3">
+          <button id="matchBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-4 py-2">匹配适用审查模板</button>
+        </div>
+        <div id="matchArea" class="mt-4"></div>
+      </div>
+      <div id="loading" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center">
+        <div class="bg-white rounded-xl shadow p-6 w-80 text-center">
+          <div class="animate-spin inline-block h-8 w-8 border-4 border-blue-200 border-t-blue-600 rounded-full mb-3"></div>
+          <div class="text-lg font-semibold mb-2">正在为 <span id="loadingName"></span> 生成审查清单</div>
+          <div class="text-sm text-gray-600">请稍候（约3秒）...</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script src="./assets/js/ui.js"></script>
+  <script src="./assets/js/hk_rules.js"></script>
+  <script>
+    const user = Proto.requireAuth(['Analyst']);
+    UI.renderSidebar('sidebar');
+    // 若带 cloneFrom 预填
+    (function prefillFromClone(){
+      const from = Proto.getQueryParam('cloneFrom');
+      if (!from) return;
+      const s = Proto.LS.get('proto_subjects', []).find(x=>x.id===from);
+      if (!s) return;
+      document.getElementById('name').value = s.basic.name || '';
+      document.getElementById('region').value = s.basic.region || 'HK';
+      document.getElementById('estDate').value = s.basic.estDate || '';
+      document.getElementById('size').value = (s.basic.size?('规模：'+s.basic.size):'规模：小型');
+      document.getElementById('contact').value = s.basic.contact || '';
+      document.getElementById('website').value = s.basic.website || '';
+      document.getElementById('email').value = s.basic.email || '';
+      document.getElementById('address').value = s.basic.address || '';
+      document.getElementById('issuerBiz').value = s.basic.issuerBiz || '否';
+    })();
+    document.getElementById('matchBtn').addEventListener('click', () => {
+      const basic = {
+        name: (document.getElementById('name').value || '').trim(),
+        region: document.getElementById('region').value,
+        estDate: document.getElementById('estDate').value,
+        size: document.getElementById('size').value.replace('规模：',''),
+        contact: document.getElementById('contact').value,
+        website: document.getElementById('website').value,
+        email: document.getElementById('email').value,
+        address: document.getElementById('address').value,
+        issuerBiz: document.getElementById('issuerBiz').value
+      };
+      if (!basic.name) return alert('请输入主体名称');
+
+      // 依据主体注册地选择模板（取已发布模板）
+      const tpls = Proto.LS.get('proto_templates', []).filter(t => t.region === basic.region && t.status === '已发布');
+      if (!tpls.length) return alert('未找到该地区的已发布模板，请联系 Admin 配置并发布');
+
+      const overlay = document.getElementById('loading');
+      document.getElementById('loadingName').textContent = basic.name;
+      overlay.classList.remove('hidden');
+      setTimeout(() => {
+        overlay.classList.add('hidden');
+        const candidates = tpls;
+        if (!candidates.length) { alert('未匹配到适用模板'); return; }
+        const box = document.getElementById('matchArea');
+        box.innerHTML = '<div class="text-sm text-gray-600 mb-2">匹配到以下模板，请选择其一：</div>';
+        const list = document.createElement('div');
+        list.className = 'space-y-2';
+        candidates.forEach((t, idx) => {
+          const id = 'selTpl_' + idx;
+          const row = document.createElement('div');
+          row.className='flex items-center gap-3';
+          row.innerHTML = `
+            <input type="radio" name="tpl" id="${id}" value="${t.id}" />
+            <label for="${id}">${t.id}｜${t.name}（${t.version}）</label>
+            <button data-id="${t.id}" class="text-blue-600 hover:underline">预览</button>
+          `;
+          list.appendChild(row);
+        });
+        box.appendChild(list);
+        const preview = document.createElement('div');
+        preview.id='tplPreview';
+        box.appendChild(preview);
+        const createBtn = document.createElement('button');
+        createBtn.className='mt-3 bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2';
+        createBtn.textContent='创建主体';
+        box.appendChild(createBtn);
+
+        box.querySelectorAll('button.text-blue-600').forEach(btn => btn.addEventListener('click', (e) => {
+          const tid = e.target.getAttribute('data-id');
+          const tpl = tpls.find(x => x.id === tid);
+          const items = (tpl.items && tpl.items.length) ? tpl.items : HK_RULES.filter(r => r.region === basic.region);
+          const html = `
+            <div class="fixed inset-0 bg-black/30 flex items-center justify-center">
+              <div class="bg-white rounded-xl shadow p-4 w-[800px]">
+                <div class="text-lg font-semibold mb-2">模板预览：${tpl.id}｜${tpl.name}</div>
+                <div class="overflow-x-auto max-h-[60vh] overflow-y-auto">
+                  <table class="min-w-full text-sm">
+                    <thead class="bg-gray-100 sticky top-0">
+                      <tr>
+                        <th class="text-left px-3 py-2">领域</th>
+                        <th class="text-left px-3 py-2">子领域</th>
+                        <th class="text-left px-3 py-2">项目</th>
+                        <th class="text-left px-3 py-2">依据</th>
+                        <th class="text-left px-3 py-2">必填规则</th>
+                        <th class="text-left px-3 py-2">风险</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${items.map(r=>`<tr class="border-t"><td class="px-3 py-2">${r.domain}</td><td class="px-3 py-2">${r.subdomain}</td><td class="px-3 py-2">${r.item}</td><td class="px-3 py-2">${r.basis||''}</td><td class="px-3 py-2">${r.mustRule}</td><td class="px-3 py-2">${r.riskLevel}</td></tr>`).join('')}
+                    </tbody>
+                  </table>
+                </div>
+                <div class="mt-3 text-right"><button id="closePreview" class="px-3 py-2 border rounded">关闭</button></div>
+              </div>
+            </div>`;
+          const wrap = document.createElement('div');
+          wrap.innerHTML = html;
+          document.body.appendChild(wrap);
+          wrap.querySelector('#closePreview').addEventListener('click', ()=>document.body.removeChild(wrap));
+        }));
+
+        createBtn.addEventListener('click', () => {
+          const checked = box.querySelector('input[name="tpl"]:checked');
+          if (!checked) { alert('请选择一个模板'); return; }
+          const tpl = tpls.find(x => x.id === checked.value);
+          const source = (tpl.items && tpl.items.length) ? tpl.items : HK_RULES.filter(r => r.region === basic.region);
+          const items = source.map(r => {
+            const mustFinal = RuleUtils.resolveMustFinal(r.mustRule, basic);
+            const weight = RuleUtils.computeWeight(mustFinal, r.riskLevel);
+            return { domain: r.domain, subdomain: r.subdomain, item: r.item, basis: r.basis, mustFinal, riskLevel: r.riskLevel, weight, conclusion: '', remark: '', files: [] };
+          });
+          const subjects = Proto.LS.get('proto_subjects', []);
+          // 重名校验（同地区同名，且目标主体状态不是“已失效”则禁止创建）
+          const dup = subjects.find(s => (s.basic?.region===basic.region) && (s.basic?.name===basic.name) && s.status !== '已失效');
+          if (dup) {
+            const info = `名称：${dup.basic.name}\nID：${dup.id}\n地点：${dup.basic.region}\n创建时间：${Proto.formatDateTime(dup.createdAt)}\n创建人：${dup.createdBy}\n审查状态：${dup.status}\n风险等级：${dup.score?.rating||'-'}`;
+            alert('已存在同名主体\n\n'+info);
+            return;
+          }
+          const subject = {
+            id: Proto.generateSubjectId(basic.region),
+            templateId: tpl.id,
+            basic,
+            checklist: items,
+            status: '未经审查',
+            createdBy: user.username,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            score: { totalWeight: 0, earned: 0, percent: 0, rating: '-' }
+          };
+          subjects.unshift(subject);
+          Proto.LS.set('proto_subjects', subjects);
+          const task = Proto.createTaskFromSubject(subject, user.username);
+          overlay.classList.remove('hidden');
+          setTimeout(() => {
+            overlay.classList.add('hidden');
+            window.location.href = './subject.html?subjectId=' + subject.id;
+          }, 800);
+        });
+      }, 600);
+    });
+  </script>
+</body>
+</html>
+
+

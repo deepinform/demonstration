@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>知识库模板 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="flex">
+    <div id="sidebar"></div>
+    <main id="main" class="flex-1 p-6 ml-64">
+      <h1 class="text-xl font-semibold mb-4">知识库模板</h1>
+      <div class="bg-white rounded-xl shadow p-4 mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <input id="tplName" placeholder="模板名称" class="border rounded px-3 py-2" />
+          <input id="tplVersion" placeholder="版本号" value="v1.0" class="border rounded px-3 py-2" />
+          <select id="tplRegion" class="border rounded px-3 py-2">
+            <option value="HK">香港</option>
+            <option value="SG">新加坡</option>
+            <option value="AE">阿联酋</option>
+            <option value="CN">中国内地</option>
+            <option value="US">美国</option>
+            <option value="GB">英国</option>
+          </select>
+          <button id="createTpl" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4">创建模板</button>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl shadow overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-100 text-gray-700">
+            <tr>
+              <th class="text-left px-4 py-2">名称</th>
+              <th class="text-left px-4 py-2">地区</th>
+              <th class="text-left px-4 py-2">版本</th>
+              <th class="text-left px-4 py-2">审查项目数</th>
+              <th class="text-left px-4 py-2">状态</th>
+              <th class="text-left px-4 py-2">最新发布时间</th>
+              <th class="text-left px-4 py-2">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script src="./assets/js/ui.js"></script>
+  <script src="./assets/js/hk_rules.js"></script>
+  <script>
+    const user = Proto.requireAuth(['Admin']);
+    UI.renderSidebar('sidebar');
+
+    const tbody = document.getElementById('tbody');
+    function render() {
+      const tpls = Proto.LS.get('proto_templates', []);
+      tbody.innerHTML = tpls.map(t => `
+        <tr class="border-t">
+          <td class="px-4 py-2">${t.name}</td>
+          <td class="px-4 py-2">${t.region}</td>
+          <td class="px-4 py-2">${t.version}</td>
+          <td class="px-4 py-2">${Array.isArray(t.items)? t.items.length : 0}</td>
+          <td class="px-4 py-2">${t.status}</td>
+          <td class="px-4 py-2">${t.publishAt ? Proto.formatDateTime(t.publishAt) : '-'}</td>
+          <td class="px-4 py-2 space-x-2">
+            <button data-id="${t.id}" data-act="publish" class="text-blue-600 hover:underline">发布</button>
+            <button data-id="${t.id}" data-act="deprecate" class="text-amber-600 hover:underline">废止</button>
+            <button data-id="${t.id}" data-act="delete" class="text-red-600 hover:underline">删除</button>
+            <a href="./template-edit.html?id=${t.id}" class="text-emerald-700 hover:underline">编辑项集</a>
+          </td>
+        </tr>
+      `).join('');
+      tbody.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const id = e.target.getAttribute('data-id');
+          const act = e.target.getAttribute('data-act');
+          const tpls = Proto.LS.get('proto_templates', []);
+          const t = tpls.find(x => x.id === id);
+          if (!t) return;
+          if (act === 'publish') { t.status = '已发布'; t.publishAt = new Date().toISOString(); }
+          if (act === 'deprecate') t.status = '已废止';
+          if (act === 'delete') {
+            const idx = tpls.findIndex(x => x.id === id);
+            if (idx >= 0) tpls.splice(idx, 1);
+            Proto.LS.set('proto_templates', tpls);
+            return render();
+          }
+          t.updatedAt = new Date().toISOString();
+          Proto.LS.set('proto_templates', tpls);
+          render();
+        });
+      });
+    }
+
+    document.getElementById('createTpl').addEventListener('click', () => {
+      const name = (document.getElementById('tplName').value || '').trim();
+      if (!name) return alert('请输入模板名称');
+      const version = (document.getElementById('tplVersion').value || 'v1.0').trim();
+      const region = document.getElementById('tplRegion').value;
+      const tpls = Proto.LS.get('proto_templates', []);
+      tpls.unshift({ id: 'TPL_' + Proto.ID.next('tpl'), name, region, version, status: '草稿', items: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      Proto.LS.set('proto_templates', tpls);
+      document.getElementById('tplName').value = '';
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
+
+

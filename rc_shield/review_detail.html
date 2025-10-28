@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>复核详情 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="flex">
+    <div id="sidebar"></div>
+    <main id="main" class="flex-1 p-6 ml-64">
+      <div class="flex items-start justify-between">
+        <h1 class="text-xl font-semibold mb-4">复核详情</h1>
+        <div id="scorePanel" class="bg-white rounded-xl shadow px-4 py-2">
+          <div class="text-sm text-gray-500">风险总分</div>
+          <div class="text-2xl font-semibold" id="scorePercent">-</div>
+          <div class="text-sm">评级：<span id="scoreRating">-</span></div>
+        </div>
+      </div>
+
+      <div id="basic" class="bg-white rounded-xl shadow p-4 mb-6"></div>
+
+      <div class="bg-white rounded-xl shadow p-4 mb-3">
+        <div class="text-sm text-gray-600">逐项复核：请对每一条审查项目给出“批准/驳回”意见，可查看 Analyst 上传的证明文件。</div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow overflow-hidden">
+        <div id="listScroll" class="overflow-x-auto max-h-[60vh] overflow-y-auto" style="overscroll-behavior: contain;">
+          <table class="min-w-[1600px] text-sm">
+            <thead class="bg-gray-100 text-gray-700 sticky top-0 z-10">
+              <tr>
+                <th class="text-left px-3 py-2">领域</th>
+                <th class="text-left px-3 py-2">子领域</th>
+                <th class="text-left px-3 py-2">审查项目</th>
+                <th class="text-left px-3 py-2">依据</th>
+                <th class="text-left px-3 py-2">必须性</th>
+                <th class="text-left px-3 py-2">风险</th>
+                <th class="text-left px-3 py-2">权重</th>
+                <th class="text-left px-3 py-2">结论(Analyst)</th>
+                <th class="text-left px-3 py-2">备注</th>
+                <th class="text-left px-3 py-2">证明文件</th>
+                <th class="text-left px-3 py-2">复核结论</th>
+                <th class="text-left px-3 py-2">复核意见</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="mt-4 flex gap-3">
+        <button id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2">保存</button>
+        <button id="approveAll" class="bg-green-600 hover:bg-green-700 text-white rounded px-4 py-2">整体批准</button>
+        <button id="rejectAll" class="bg-red-600 hover:bg-red-700 text-white rounded px-4 py-2">整体驳回</button>
+      </div>
+    </main>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script src="./assets/js/ui.js"></script>
+  <script>
+    const user = Proto.requireAuth(['Manager']);
+    UI.renderSidebar('sidebar');
+    const subjectId = Proto.getQueryParam('subjectId');
+    const taskId = Proto.getQueryParam('taskId');
+    const subjects = Proto.LS.get('proto_subjects', []);
+    const subject = subjects.find(s => s.id === subjectId);
+    if (!subject) { alert('主体不存在'); window.location.href='./review.html'; }
+
+    function calcScore() {
+      const totalWeight = subject.checklist.reduce((s, it) => s + (it.weight || 0), 0);
+      const earned = subject.checklist.reduce((s, it) => s + ((it.conclusion === '符合' ? 1 : 0) * (it.weight || 0)), 0);
+      const percent = totalWeight > 0 ? Math.round((earned / totalWeight) * 100) : 0;
+      let rating = '-'; if (percent < 80) rating = '高风险'; else if (percent < 90) rating = '中风险'; else rating = '低风险';
+      document.getElementById('scorePercent').textContent = String(percent);
+      document.getElementById('scoreRating').textContent = rating;
+    }
+
+    function renderBasic() {
+      const b = subject.basic;
+      document.getElementById('basic').innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <div><span class="text-gray-500">主体ID：</span>${subject.id}</div>
+          <div><span class="text-gray-500">主体名称：</span>${b.name}</div>
+          <div><span class="text-gray-500">注册地：</span>${b.region}</div>
+          <div><span class="text-gray-500">成立时间：</span>${b.estDate || '-'}</div>
+          <div><span class="text-gray-500">涉及发行业务：</span>${b.issuerBiz}</div>
+        </div>`;
+    }
+
+    function renderTable() {
+      const tb = document.getElementById('tbody');
+      tb.innerHTML = subject.checklist.map((it, idx) => `
+        <tr class="border-t align-top">
+          <td class="px-3 py-2">${it.domain}</td>
+          <td class="px-3 py-2">${it.subdomain}</td>
+          <td class="px-3 py-2">${it.item}</td>
+          <td class="px-3 py-2">${it.basis}</td>
+          <td class="px-3 py-2">${it.mustFinal}</td>
+          <td class="px-3 py-2">${it.riskLevel}</td>
+          <td class="px-3 py-2">${it.weight}</td>
+          <td class="px-3 py-2">${it.conclusion || '-'}</td>
+          <td class="px-3 py-2">${it.remark || '-'}</td>
+          <td class="px-3 py-2">${(it.files||[]).map(f=>`<a class=\"text-blue-600 hover:underline\" href=\"#\" data-i=\"${idx}\" data-f=\"${f.name}\">${f.name}</a>`).join('、')||'-'}</td>
+          <td class="px-3 py-2">
+            <select data-idx="${idx}" class="border rounded px-2 py-1">
+              <option value="">未复核</option>
+              <option ${it.reviewDecision==='批准'?'selected':''}>批准</option>
+              <option ${it.reviewDecision==='驳回'?'selected':''}>驳回</option>
+            </select>
+          </td>
+          <td class="px-3 py-2">
+            <input type="text" data-idx="${idx}" class="border rounded px-2 py-1 w-52" placeholder="复核意见" value="${it.reviewComment||''}" />
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function bindRowEvents() {
+      // 文件预览（占位：显示文件名）
+      document.querySelectorAll('a[data-i][data-f]').forEach(a => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        alert('预览文件：' + a.getAttribute('data-f'));
+      }));
+      // 复核字段
+      document.querySelectorAll('select[data-idx]').forEach(sel => sel.addEventListener('change', (e) => {
+        const i = Number(e.target.getAttribute('data-idx'));
+        const v = e.target.value || '';
+        subject.checklist[i].reviewDecision = v || '';
+        subject.checklist[i].reviewAt = new Date().toISOString();
+        subject.checklist[i].reviewBy = user.username;
+      }));
+      document.querySelectorAll('input[type="text"][data-idx]').forEach(inp => inp.addEventListener('input', (e) => {
+        const i = Number(e.target.getAttribute('data-idx'));
+        subject.checklist[i].reviewComment = e.target.value;
+      }));
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      // 持久化逐项复核，不改变任务与主体整体状态
+      const arr = Proto.LS.get('proto_subjects', []);
+      const idx = arr.findIndex(s => s.id === subject.id);
+      if (idx >= 0) {
+        arr[idx] = subject;
+        Proto.LS.set('proto_subjects', arr);
+      }
+      alert('已保存复核意见');
+    });
+
+    document.getElementById('approveAll').addEventListener('click', () => {
+      const decs = subject.checklist.map(x => x.reviewDecision || '');
+      if (decs.some(d => d !== '批准')) { return alert('仅当全部复核结论为“批准”时才可整体批准'); }
+      const tasks = Proto.LS.get('proto_tasks', []);
+      const t = tasks.find(x => x.id === taskId);
+      if (t) Proto.updateTaskStatus(t.id, '已完成', user.username);
+      subject.status = '已完成';
+      subject.review = { by: user.username, at: new Date().toISOString(), result: '批准' };
+      Proto.LS.set('proto_subjects', subjects);
+      alert('审批完成，已归档');
+      window.location.href = './review.html';
+    });
+
+    document.getElementById('rejectAll').addEventListener('click', () => {
+      const rejected = subject.checklist.map((x,i)=>({i, x})).filter(p => p.x.reviewDecision === '驳回');
+      if (!rejected.length) { return alert('当前没有被标记为“驳回”的项目'); }
+      const html = `
+        <div class="fixed inset-0 bg-black/30 flex items-center justify-center">
+          <div class="bg-white rounded-xl shadow p-4 w-[720px]">
+            <div class="text-lg font-semibold mb-2">确认复核意见</div>
+            <div class="max-h-[50vh] overflow-y-auto">
+              ${rejected.map(p => `
+                <div class="mb-3">
+                  <div class="text-sm text-gray-600 mb-1">${p.x.domain} / ${p.x.subdomain} / ${p.x.item}</div>
+                  <input data-i="${p.i}" class="border rounded px-2 py-1 w-full" placeholder="复核意见" value="${p.x.reviewComment||''}" />
+                </div>
+              `).join('')}
+            </div>
+            <div class="mt-3 text-right space-x-2">
+              <button id="dlgCancel" class="px-3 py-2 border rounded">取消</button>
+              <button id="dlgOk" class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded">确定</button>
+            </div>
+          </div>
+        </div>`;
+      const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      document.body.appendChild(wrap);
+      // 提升弹窗层级，避免被表头遮挡
+      wrap.firstElementChild.style.zIndex = '50';
+      wrap.querySelector('#dlgCancel').addEventListener('click', ()=>document.body.removeChild(wrap));
+      wrap.querySelector('#dlgOk').addEventListener('click', ()=>{
+        const inputs = wrap.querySelectorAll('input[data-i]');
+        let invalid = false;
+        inputs.forEach(inp => {
+          if (!(inp.value||'').trim()) { invalid = true; inp.classList.add('border-red-500'); }
+        });
+        if (invalid) { alert('存在未填写的复核意见'); return; }
+        inputs.forEach(inp => {
+          const i = Number(inp.getAttribute('data-i'));
+          subject.checklist[i].reviewComment = inp.value;
+          subject.checklist[i].reviewAt = new Date().toISOString();
+          subject.checklist[i].reviewBy = user.username;
+        });
+        document.body.removeChild(wrap);
+        const tasks = Proto.LS.get('proto_tasks', []);
+        const t = tasks.find(x => x.id === taskId);
+        if (t) Proto.updateTaskStatus(t.id, '已退回', user.username, { reason: '部分项目被驳回' });
+        subject.status = '已退回';
+        subject.review = { by: user.username, at: new Date().toISOString(), result: '驳回' };
+        Proto.LS.set('proto_subjects', subjects);
+        alert('已退回给 Analyst 并记录驳回原因');
+        window.location.href = './review.html';
+      });
+    });
+
+    renderBasic();
+    renderTable();
+    bindRowEvents();
+    calcScore();
+    UI.isolateScroll(document.getElementById('listScroll'));
+  </script>
+</body>
+</html>
+
+

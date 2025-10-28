@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>任务看板 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="flex">
+    <div id="sidebar"></div>
+    <main id="main" class="flex-1 p-6 ml-64">
+      <h1 class="text-xl font-semibold mb-4">任务看板</h1>
+      <div id="analystMsg" class="bg-white rounded-xl shadow p-4 mb-4 hidden"></div>
+      <div id="analystHistory" class="bg-white rounded-xl shadow p-4 mb-4 hidden"></div>
+      <div class="flex items-center gap-3 mb-4">
+        <input id="kw" placeholder="按公司名搜索" class="border rounded px-3 py-2" />
+        <select id="statusFilter" class="border rounded px-3 py-2">
+          <option value="">全部状态</option>
+          <option>未经审查</option>
+          <option>审查中</option>
+          <option>待审核</option>
+          <option>已退回</option>
+          <option>已完成</option>
+        </select>
+      </div>
+      <div class="bg-white rounded-xl shadow overflow-hidden">
+        <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-100 text-gray-700">
+            <tr>
+              <th class="text-left px-4 py-2">主体ID</th>
+              <th class="text-left px-4 py-2">公司名称</th>
+              <th class="text-left px-4 py-2">负责人</th>
+              <th class="text-left px-4 py-2">状态</th>
+              <th class="text-left px-4 py-2">创建时间</th>
+              <th class="text-left px-4 py-2">更新时间</th>
+              <th class="text-left px-4 py-2">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script src="./assets/js/ui.js"></script>
+  <script>
+    const user = Proto.requireAuth();
+    UI.renderSidebar('sidebar');
+    const tbody = document.getElementById('tbody');
+
+    function render() {
+      const tasks = Proto.LS.get('proto_tasks', []);
+      const subjects = Proto.LS.get('proto_subjects', []);
+      const kw = (document.getElementById('kw').value || '').trim();
+      const sf = document.getElementById('statusFilter').value;
+      const list = tasks.filter(t => {
+        if (kw && !t.companyName.includes(kw)) return false;
+        if (sf && t.status !== sf) return false;
+        return true;
+      });
+      tbody.innerHTML = list.map(t => {
+        const s = subjects.find(x => x.id === t.subjectId);
+        const sid = s ? s.id : '-';
+        return `
+        <tr class="border-t">
+          <td class="px-4 py-2">${sid}</td>
+          <td class="px-4 py-2">${t.companyName}</td>
+          <td class="px-4 py-2">${t.analyst}</td>
+          <td class="px-4 py-2">${UI.statusBadge(t.status)}</td>
+          <td class="px-4 py-2">${Proto.formatDateTime(t.createdAt)}</td>
+          <td class="px-4 py-2">${Proto.formatDateTime(t.updatedAt)}</td>
+          <td class="px-4 py-2 space-x-2">
+            <a class="text-blue-600 hover:underline" href="./subject.html?subjectId=${t.subjectId}">进入</a>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    document.getElementById('kw').addEventListener('input', render);
+    document.getElementById('statusFilter').addEventListener('change', render);
+    render();
+
+    // Analyst 消息栏（审批结果）
+    (function renderAnalystMessages(){
+      if (!user || user.role !== 'Analyst') return;
+      const box = document.getElementById('analystMsg');
+      const msgs = Proto.Messages.list({ type:'reAudit', toRole:'Analyst' }).filter(m => m.status !== '已处理');
+      const latest = msgs.find(m => m.status === '已批准' || m.status === '已驳回');
+      if (latest) {
+        box.classList.remove('hidden');
+        const s = Proto.LS.get('proto_subjects', []).find(x=>x.id===latest.subjectId);
+        const jumpBtn = latest.status === '已批准' ? `<a class="ml-2 text-blue-600 hover:underline" id="goUpdate" href="./analyst-new.html?cloneFrom=${latest.subjectId}">更新主体信息</a>` : '';
+        const reason = latest.meta?.applyText ? `（申请理由：${latest.meta.applyText}）` : '';
+        const time = latest.updatedAt ? `（处理时间：${Proto.formatDateTime(latest.updatedAt)}）` : '';
+        function regionName(code){
+          const map = { HK:'香港', SG:'新加坡', AE:'阿联酋', CN:'中国内地', US:'美国', GB:'英国' };
+          return (map[code] || code) + '地区';
+        }
+        const titleText = latest.status === '已驳回'
+          ? `${regionName(s?.basic?.region||'')}${s?.basic?.name||''}的重新审核申请被驳回`
+          : `${regionName(s?.basic?.region||'')}${s?.basic?.name||''}的重新审核申请已批准`;
+        box.innerHTML = `<div class="text-sm font-semibold mb-1">${titleText}</div><div class="text-sm">${reason}${time} ${jumpBtn}</div>`;
+        const go = document.getElementById('goUpdate');
+        if (go) {
+          go.addEventListener('click', () => {
+            Proto.Messages.update(latest.id, { status: '已处理' });
+          });
+        }
+      }
+      // 历史消息弹窗
+      const histBox = document.getElementById('analystHistory');
+      if (!msgs.length) return;
+      histBox.classList.remove('hidden');
+      histBox.innerHTML = `<div class="flex items-center justify-between">
+        <div class="text-sm text-gray-600">历史消息</div>
+        <button id="openHist" class="px-2 py-1 border rounded text-sm">查看全部</button>
+      </div>`;
+      histBox.querySelector('#openHist').addEventListener('click', () => {
+        const html = `
+          <div class=\"fixed inset-0 bg-black/30 flex items-center justify-center\">
+            <div class=\"bg-white rounded-xl shadow p-4 w-[720px]\">
+              <div class=\"text-lg font-semibold mb-2\">历史消息</div>
+              <div class=\"max-h-[60vh] overflow-y-auto\">
+                ${msgs.map(m=>`
+                  <div class=\\\"border rounded p-3 text-sm mb-2\\\">
+                    <div>${m.content} <span class=\\\"text-gray-500\\\">（状态：${m.status}）</span></div>
+                    ${m.meta?.applyText?`<div class=\\\"text-gray-600\\\">申请理由：${m.meta.applyText}</div>`:''}
+                    <div class=\\\"text-gray-500\\\">创建：${Proto.formatDateTime(m.createdAt)}${m.updatedAt?` ｜ 更新：${Proto.formatDateTime(m.updatedAt)}`:''}</div>
+                  </div>
+                `).join('')}
+              </div>
+              <div class=\"mt-3 text-right\"><button id=\"closeHist\" class=\"px-3 py-2 border rounded\">关闭</button></div>
+            </div>
+          </div>`;
+        const wrap = document.createElement('div');
+        wrap.innerHTML = html;
+        document.body.appendChild(wrap);
+        wrap.firstElementChild.style.zIndex = '50';
+        wrap.querySelector('#closeHist').addEventListener('click', ()=>document.body.removeChild(wrap));
+      });
+    })();
+  </script>
+</body>
+</html>
+
+

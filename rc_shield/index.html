@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>登录 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gray-50">
+  <div class="max-w-md mx-auto mt-24 bg-white p-8 rounded-xl shadow">
+    <h1 class="text-2xl font-semibold mb-6">登录</h1>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm text-gray-600 mb-1">选择用户</label>
+        <select id="userSelect" class="w-full border rounded px-3 py-2">
+        </select>
+      </div>
+      <button id="loginBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2">进入系统</button>
+      <button id="resetBtn" class="w-full bg-red-600 hover:bg-red-700 text-white rounded px-4 py-2">清空数据并重置系统</button>
+    </div>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script>
+    (function init(){
+      const users = Proto.LS.get('proto_users', []);
+      const sel = document.getElementById('userSelect');
+      sel.innerHTML = users.map(u => `<option value="${u.username}">${u.username}（${u.role}）</option>`).join('');
+      document.getElementById('loginBtn').addEventListener('click', () => {
+        const username = sel.value;
+        const user = users.find(u => u.username === username);
+        if (!user) return alert('请选择用户');
+        Proto.LS.set('proto_current_user', user);
+        window.location.href = './dashboard.html';
+      });
+      // 重置：保留系统预设规则（模板HK等），清空主体/任务/消息/当前用户
+      document.getElementById('resetBtn').addEventListener('click', () => {
+        if (!confirm('确认清空数据并重置系统？该操作不可撤销。')) return;
+        const keep = {
+          proto_users: Proto.LS.get('proto_users', []),
+          proto_templates: Proto.LS.get('proto_templates', [])
+        };
+        try {
+          localStorage.removeItem('proto_tasks');
+          localStorage.removeItem('proto_subjects');
+          localStorage.removeItem('proto_messages');
+          localStorage.removeItem('proto_current_user');
+          // 保留 users 与 templates
+          Proto.LS.set('proto_users', keep.proto_users);
+          Proto.LS.set('proto_templates', keep.proto_templates);
+          alert('已清空数据并重置系统');
+          window.location.reload();
+        } catch (e) {
+          alert('重置失败，请重试');
+        }
+      });
+    })();
+  </script>
+</body>
+<script>
+  // Tailwind config for brand colors could be added here if needed
+</script>
+</html>
+
+

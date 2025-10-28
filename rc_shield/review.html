@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>待审核 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="flex">
+    <div id="sidebar"></div>
+    <main id="main" class="flex-1 p-6 ml-64">
+      <h1 class="text-xl font-semibold mb-4">待审核</h1>
+
+      <div id="msgPanel" class="bg-white rounded-xl shadow p-4 mb-6">
+        <div class="text-sm text-gray-600 mb-2">消息栏（重新发起审核申请）</div>
+        <div id="msgList" class="space-y-2"></div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow overflow-hidden">
+        <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-100 text-gray-700">
+            <tr>
+              <th class="text-left px-4 py-2">主体ID</th>
+              <th class="text-left px-4 py-2">公司名称</th>
+              <th class="text-left px-4 py-2">负责人</th>
+              <th class="text-left px-4 py-2">状态</th>
+              <th class="text-left px-4 py-2">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script src="./assets/js/ui.js"></script>
+  <script>
+    const user = Proto.requireAuth(['Manager']);
+    UI.renderSidebar('sidebar');
+    const tbody = document.getElementById('tbody');
+
+    function render() {
+      const tasks = Proto.LS.get('proto_tasks', []).filter(t => t.status === '待审核');
+      const subjects = Proto.LS.get('proto_subjects', []);
+      tbody.innerHTML = tasks.map(t => {
+        const s = subjects.find(x => x.id === t.subjectId);
+        const rating = s?.score?.rating || '-';
+        const percent = s?.score?.percent || 0;
+        const sid = s?.id || '-';
+        return `
+        <tr class="border-t">
+          <td class="px-4 py-2">${sid}</td>
+          <td class="px-4 py-2">${t.companyName}</td>
+          <td class="px-4 py-2">${t.analyst}</td>
+          <td class="px-4 py-2">${UI.statusBadge(t.status)}</td>
+          <td class="px-4 py-2 space-x-2">
+            <a class="text-blue-600 hover:underline" href="./review_detail.html?subjectId=${t.subjectId}&taskId=${t.id}">进入复核</a>
+            <span class="ml-3 text-xs text-gray-500">当前评分：${percent}（${rating}）</span>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    render();
+
+    // 消息栏：reAudit 审批
+    function renderMessages() {
+      const box = document.getElementById('msgList');
+      const msgs = Proto.Messages.list({ type: 'reAudit', toRole: 'Manager' }).filter(m => m.status === '待审批');
+      if (!msgs.length) { box.innerHTML = '<div class="text-sm text-gray-500">暂无待审批申请</div>'; return; }
+      box.innerHTML = msgs.map(m => `
+        <div class="border rounded p-3 flex items-center justify-between">
+          <div class="text-sm">${m.content} <span class="ml-2 text-gray-500">申请理由：${m.meta?.applyText||'-'}</span></div>
+          <div class="space-x-2">
+            <button data-id="${m.id}" data-act="approve" class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded">批准</button>
+            <button data-id="${m.id}" data-act="reject" class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded">驳回</button>
+          </div>
+        </div>
+      `).join('');
+      box.querySelectorAll('button[data-id]').forEach(btn => btn.addEventListener('click', (e) => {
+        const id = e.target.getAttribute('data-id');
+        const act = e.target.getAttribute('data-act');
+        const msgs = Proto.Messages.list();
+        const msg = msgs.find(x => x.id === id);
+        if (!msg) return;
+        const subjects = Proto.LS.get('proto_subjects', []);
+        const s = subjects.find(x => x.id === msg.subjectId);
+        if (!s) return;
+        if (act === 'reject') {
+          Proto.Messages.update(id, { status: '已驳回' });
+          Proto.Messages.push({ type:'reAudit', subjectId: s.id, by: user.username, toRole:'Analyst', status:'已驳回', content:`${s.basic.region}${s.basic.name}的重新审核申请被驳回` });
+          alert('已驳回');
+          renderMessages();
+          return;
+        }
+        if (act === 'approve') {
+          // 主体置为已失效
+          s.status = '已失效';
+          s.updatedAt = new Date().toISOString();
+          Proto.LS.set('proto_subjects', subjects);
+          Proto.Messages.update(id, { status: '已批准' });
+          // 通知 Analyst，并提供“更新主体信息”跳转
+          Proto.Messages.push({ type:'reAudit', subjectId: s.id, by: user.username, toRole:'Analyst', status:'已批准', content:`${s.basic.region}${s.basic.name}的重新审核申请已批准，请更新主体信息` });
+          alert('已批准，主体状态已置为“已失效”');
+          renderMessages();
+        }
+      }));
+    }
+    renderMessages();
+  </script>
+</body>
+</html>
+
+

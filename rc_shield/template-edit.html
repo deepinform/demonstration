@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>模板项集编辑 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="flex">
+    <div id="sidebar"></div>
+    <main class="flex-1 p-6 ml-64">
+      <h1 class="text-xl font-semibold mb-4">模板项集编辑</h1>
+      <div id="meta" class="bg-white rounded-xl shadow p-4 mb-4"></div>
+      <div class="bg-white rounded-xl shadow p-4 mb-4">
+        <div class="grid grid-cols-1 md:grid-cols-6 gap-3 text-sm">
+          <input id="domain" class="border rounded px-3 py-2" placeholder="领域" />
+          <input id="subdomain" class="border rounded px-3 py-2" placeholder="子领域" />
+          <input id="item" class="border rounded px-3 py-2" placeholder="审查项目" />
+          <input id="basis" class="border rounded px-3 py-2" placeholder="监管依据" />
+          <select id="mustRule" class="border rounded px-3 py-2">
+            <option value="是">必填规则：是</option>
+            <option value="否">必填规则：否</option>
+            <option value="涉及发行业务">必填规则：涉及发行业务</option>
+          </select>
+          <select id="riskLevel" class="border rounded px-3 py-2">
+            <option>高</option>
+            <option>中</option>
+            <option>低</option>
+          </select>
+        </div>
+        <div class="mt-3 flex items-center gap-2">
+          <button id="addItem" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2">新增项目</button>
+          <button id="importCommon" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded px-4 py-2">引用通用模板</button>
+          <button id="saveTpl" class="bg-amber-600 hover:bg-amber-700 text-white rounded px-4 py-2">保存</button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow overflow-hidden">
+        <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-100 text-gray-700 sticky top-0">
+            <tr>
+              <th class="text-left px-3 py-2">领域</th>
+              <th class="text-left px-3 py-2">子领域</th>
+              <th class="text-left px-3 py-2">项目</th>
+              <th class="text-left px-3 py-2">依据</th>
+              <th class="text-left px-3 py-2">必填规则</th>
+              <th class="text-left px-3 py-2">风险</th>
+              <th class="text-left px-3 py-2">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script src="./assets/js/ui.js"></script>
+  <script src="./assets/js/hk_rules.js"></script>
+  <script>
+    const user = Proto.requireAuth(['Admin']);
+    UI.renderSidebar('sidebar');
+    const id = Proto.getQueryParam('id');
+    const tpls = Proto.LS.get('proto_templates', []);
+    const tpl = tpls.find(t => t.id === id);
+    if (!tpl) { alert('模板不存在'); window.location.href = './admin-templates.html'; }
+    tpl.items = tpl.items || [];
+
+    function renderMeta() {
+      document.getElementById('meta').innerHTML = `
+        <div class="text-sm text-gray-600">名称：${tpl.name} ｜ 地区：${tpl.region} ｜ 版本：${tpl.version} ｜ 状态：${tpl.status}</div>
+      `;
+    }
+
+    function renderTable() {
+      const tb = document.getElementById('tbody');
+      tb.innerHTML = tpl.items.map((x, i) => `
+        <tr class="border-t">
+          <td class="px-3 py-2">${x.domain}</td>
+          <td class="px-3 py-2">${x.subdomain}</td>
+          <td class="px-3 py-2">${x.item}</td>
+          <td class="px-3 py-2">${x.basis}</td>
+          <td class="px-3 py-2">${x.mustRule}</td>
+          <td class="px-3 py-2">${x.riskLevel}</td>
+          <td class="px-3 py-2 space-x-2">
+            <button data-i="${i}" data-act="edit" class="text-blue-600 hover:underline">编辑</button>
+            <button data-i="${i}" data-act="delete" class="text-red-600 hover:underline">删除</button>
+          </td>
+        </tr>
+      `).join('');
+      tb.querySelectorAll('button').forEach(btn => btn.addEventListener('click', (e) => {
+        const i = Number(e.target.getAttribute('data-i'));
+        const act = e.target.getAttribute('data-act');
+        if (act === 'delete') {
+          tpl.items.splice(i,1);
+          Proto.LS.set('proto_templates', tpls);
+          return renderTable();
+        }
+        if (act === 'edit') {
+          const x = tpl.items[i];
+          const html = `
+            <div class="fixed inset-0 bg-black/30 flex items-center justify-center">
+              <div class="bg-white rounded-xl shadow p-4 w-[560px]">
+                <div class="text-lg font-semibold mb-2">编辑项目</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <input id="e_domain" class="border rounded px-3 py-2" value="${x.domain}" />
+                  <input id="e_subdomain" class="border rounded px-3 py-2" value="${x.subdomain}" />
+                  <input id="e_item" class="border rounded px-3 py-2" value="${x.item}" />
+                  <input id="e_basis" class="border rounded px-3 py-2" value="${x.basis}" />
+                  <select id="e_mustRule" class="border rounded px-3 py-2">
+                    <option value="是" ${x.mustRule==='是'?'selected':''}>必填规则：是</option>
+                    <option value="否" ${x.mustRule==='否'?'selected':''}>必填规则：否</option>
+                    <option value="涉及发行业务" ${x.mustRule==='涉及发行业务'?'selected':''}>必填规则：涉及发行业务</option>
+                  </select>
+                  <select id="e_riskLevel" class="border rounded px-3 py-2">
+                    <option ${x.riskLevel==='高'?'selected':''}>高</option>
+                    <option ${x.riskLevel==='中'?'selected':''}>中</option>
+                    <option ${x.riskLevel==='低'?'selected':''}>低</option>
+                  </select>
+                </div>
+                <div class="mt-3 text-right space-x-2">
+                  <button id="dlgCancel" class="px-3 py-2 border rounded">取消</button>
+                  <button id="dlgOk" class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded">保存</button>
+                </div>
+              </div>
+            </div>`;
+          const wrap = document.createElement('div');
+          wrap.innerHTML = html;
+          document.body.appendChild(wrap);
+          wrap.firstElementChild.style.zIndex = '50';
+          wrap.querySelector('#dlgCancel').addEventListener('click', ()=>document.body.removeChild(wrap));
+          wrap.querySelector('#dlgOk').addEventListener('click', ()=>{
+            const domain = (document.getElementById('e_domain').value||'').trim();
+            const subdomain = (document.getElementById('e_subdomain').value||'').trim();
+            const item = (document.getElementById('e_item').value||'').trim();
+            const basis = (document.getElementById('e_basis').value||'').trim();
+            const mustRule = document.getElementById('e_mustRule').value;
+            const riskLevel = document.getElementById('e_riskLevel').value;
+            if (!domain || !subdomain || !item) { alert('请补充领域/子领域/项目'); return; }
+            tpl.items[i] = { ...x, domain, subdomain, item, basis, mustRule, riskLevel };
+            Proto.LS.set('proto_templates', tpls);
+            document.body.removeChild(wrap);
+            renderTable();
+          });
+        }
+      }));
+    }
+
+    document.getElementById('addItem').addEventListener('click', () => {
+      const domain = (document.getElementById('domain').value||'').trim();
+      const subdomain = (document.getElementById('subdomain').value||'').trim();
+      const item = (document.getElementById('item').value||'').trim();
+      const basis = (document.getElementById('basis').value||'').trim();
+      const mustRule = document.getElementById('mustRule').value;
+      const riskLevel = document.getElementById('riskLevel').value;
+      if (!domain || !subdomain || !item) return alert('请补充领域/子领域/项目');
+      tpl.items.unshift({ region: tpl.region, domain, subdomain, item, basis, mustRule, riskLevel });
+      Proto.LS.set('proto_templates', tpls);
+      renderTable();
+      document.getElementById('domain').value='';
+      document.getElementById('subdomain').value='';
+      document.getElementById('item').value='';
+      document.getElementById('basis').value='';
+    });
+
+    // 保存模板修改：仅此处落盘，并将模板状态置为草稿
+    document.getElementById('saveTpl').addEventListener('click', () => {
+      const tplsAll = Proto.LS.get('proto_templates', []);
+      const idx = tplsAll.findIndex(t => t.id === tpl.id);
+      if (idx < 0) { alert('模板不存在'); return; }
+      tplsAll[idx] = { ...tpl, status: '草稿', updatedAt: new Date().toISOString() };
+      Proto.LS.set('proto_templates', tplsAll);
+      alert('已保存，模板状态置为草稿');
+      renderMeta();
+      renderTable();
+    });
+
+    // 引用通用模板（支持筛选地区、多选/全选导入）
+    document.getElementById('importCommon').addEventListener('click', () => {
+      const html = `
+        <div class="fixed inset-0 bg-black/30 flex items-center justify-center">
+          <div class="bg-white rounded-xl shadow p-4 w-[900px]">
+            <div class="text-lg font-semibold mb-2">引用通用模板</div>
+            <div class="flex items-center gap-3 mb-3 text-sm">
+              <label class="text-gray-600">地区：</label>
+              <select id="c_region" class="border rounded px-3 py-2">
+                <option value="HK">香港</option>
+              </select>
+              <button id="c_reload" class="px-3 py-2 border rounded">加载</button>
+              <button id="c_selectAll" class="px-3 py-2 border rounded">全选</button>
+              <button id="c_clear" class="px-3 py-2 border rounded">清空</button>
+            </div>
+            <div id="c_container" class="max-h-[55vh] overflow-y-auto border rounded"></div>
+            <div class="mt-3 text-right space-x-2">
+              <button id="dlgCancel" class="px-3 py-2 border rounded">取消</button>
+              <button id="dlgOk" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded">导入所选</button>
+            </div>
+          </div>
+        </div>`;
+      const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      document.body.appendChild(wrap);
+      wrap.firstElementChild.style.zIndex = '50';
+
+      function loadCommon() {
+        const region = document.getElementById('c_region').value;
+        // 当前仅支持香港通用规则；可在此扩展其他地区规则
+        const rules = (window.HK_RULES || []).filter(r => r.region === region);
+        const listHtml = `
+          <table class="min-w-full text-sm">
+            <thead class="bg-gray-100 sticky top-0">
+              <tr>
+                <th class="px-3 py-2"><input type="checkbox" id="c_all" /></th>
+                <th class="text-left px-3 py-2">领域</th>
+                <th class="text-left px-3 py-2">子领域</th>
+                <th class="text-left px-3 py-2">项目</th>
+                <th class="text-left px-3 py-2">依据</th>
+                <th class="text-left px-3 py-2">必填规则</th>
+                <th class="text-left px-3 py-2">风险</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rules.map((r,idx)=>`
+                <tr class=\"border-t\">
+                  <td class=\"px-3 py-2\"><input type=\"checkbox\" data-i=\"${idx}\" /></td>
+                  <td class=\"px-3 py-2\">${r.domain}</td>
+                  <td class=\"px-3 py-2\">${r.subdomain}</td>
+                  <td class=\"px-3 py-2\">${r.item}</td>
+                  <td class=\"px-3 py-2\">${r.basis}</td>
+                  <td class=\"px-3 py-2\">${r.mustRule}</td>
+                  <td class=\"px-3 py-2\">${r.riskLevel}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>`;
+        const box = document.getElementById('c_container');
+        box.innerHTML = listHtml;
+        document.getElementById('c_all').addEventListener('change', (e) => {
+          box.querySelectorAll('input[type="checkbox"][data-i]').forEach(chk => chk.checked = e.target.checked);
+        });
+      }
+
+      document.getElementById('c_reload').addEventListener('click', loadCommon);
+      document.getElementById('c_selectAll').addEventListener('click', () => {
+        const box = document.getElementById('c_container');
+        box.querySelectorAll('input[type="checkbox"][data-i]').forEach(chk => chk.checked = true);
+      });
+      document.getElementById('c_clear').addEventListener('click', () => {
+        const box = document.getElementById('c_container');
+        box.querySelectorAll('input[type="checkbox"][data-i]').forEach(chk => chk.checked = false);
+      });
+      wrap.querySelector('#dlgCancel').addEventListener('click', ()=>document.body.removeChild(wrap));
+      wrap.querySelector('#dlgOk').addEventListener('click', ()=>{
+        const region = document.getElementById('c_region').value;
+        const rules = (window.HK_RULES || []).filter(r => r.region === region);
+        const box = document.getElementById('c_container');
+        const selectedIdx = Array.from(box.querySelectorAll('input[type="checkbox"][data-i]')).filter(chk => chk.checked).map(chk => Number(chk.getAttribute('data-i')));
+        if (!selectedIdx.length) { alert('请选择至少一条项目'); return; }
+        const selected = selectedIdx.map(i => rules[i]);
+        // 去重策略：以 域/子域/项目 文本作为唯一键，避免重复加入
+        const existedKeys = new Set((tpl.items||[]).map(x => `${x.domain}|||${x.subdomain}|||${x.item}`));
+        selected.forEach(r => {
+          const key = `${r.domain}|||${r.subdomain}|||${r.item}`;
+          if (!existedKeys.has(key)) {
+            tpl.items.push({ region: tpl.region, domain: r.domain, subdomain: r.subdomain, item: r.item, basis: r.basis, mustRule: r.mustRule, riskLevel: r.riskLevel });
+            existedKeys.add(key);
+          }
+        });
+        Proto.LS.set('proto_templates', tpls);
+        document.body.removeChild(wrap);
+        renderTable();
+      });
+
+      // 默认加载一次
+      loadCommon();
+    });
+
+    renderMeta();
+    renderTable();
+  </script>
+</body>
+</html>
+
+

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>报告 - 合规审查原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @media print { .no-print { display: none; } }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div class="flex">
+    <div id="sidebar" class="no-print"></div>
+    <main class="flex-1 p-6 ml-64">
+      <div class="no-print mb-4">
+        <div class="text-xl font-semibold mb-3">报告</div>
+        <div class="flex items-center gap-2">
+          <input id="q" placeholder="输入主体ID或主体名称" class="border rounded px-3 py-2 w-80" />
+          <button id="searchBtn" class="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2">搜索</button>
+        </div>
+        <div id="results" class="mt-3 text-sm"></div>
+        <div class="mt-2">
+          <button id="printBtn" class="bg-green-600 hover:bg-green-700 text-white rounded px-4 py-2" disabled>导出 PDF</button>
+        </div>
+      </div>
+
+      <div id="report"></div>
+    </main>
+  </div>
+
+  <script src="./assets/js/storage.js"></script>
+  <script src="./assets/js/ui.js"></script>
+  <script>
+    const user = Proto.requireAuth();
+    UI.renderSidebar('sidebar');
+    const reportEl = document.getElementById('report');
+
+    function renderReport(subject) {
+      const notOk = subject.checklist.filter(x => x.conclusion === '不符合');
+      reportEl.innerHTML = `
+        <div id="reportBody" class="bg-white rounded-xl shadow p-6">
+          <div class="text-2xl font-semibold mb-2">${subject.id}｜${subject.basic.name} 风险评估报告</div>
+          <div class="text-gray-500 mb-6">生成时间：${Proto.formatDateTime(new Date().toISOString())}</div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-6">
+            <div><span class="text-gray-500">主体：</span>${subject.basic.name}</div>
+            <div><span class="text-gray-500">主体ID：</span>${subject.id}</div>
+            <div><span class="text-gray-500">注册地：</span>${subject.basic.region}</div>
+            <div><span class="text-gray-500">成立时间：</span>${subject.basic.estDate || '-'}</div>
+            <div><span class="text-gray-500">涉及发行业务：</span>${subject.basic.issuerBiz}</div>
+            <div><span class="text-gray-500">最终评级：</span>${subject.score.rating}</div>
+            <div><span class="text-gray-500">风险总分：</span>${subject.score.percent}</div>
+            <div><span class="text-gray-500">审查人：</span>${subject.createdBy}</div>
+            <div><span class="text-gray-500">最近一次审查时间：</span>${Proto.formatDateTime(subject.updatedAt)}</div>
+            <div><span class="text-gray-500">复核人：</span>${subject.review?.by || '-'}</div>
+            <div><span class="text-gray-500">最近一次复核时间：</span>${subject.review?.at ? Proto.formatDateTime(subject.review.at) : '-'}</div>
+            <div><span class="text-gray-500">最近一次评估时间：</span>${Proto.formatDateTime(new Date().toISOString())}</div>
+          </div>
+
+          <div class="mb-4 text-lg font-semibold">风险概要</div>
+          ${notOk.length ? `
+            <ul class="list-disc ml-6 mb-6 text-sm">
+              ${notOk.map(x => `<li>${x.domain}/${x.subdomain} - ${x.item}（${x.basis}）</li>`).join('')}
+            </ul>
+          ` : '<div class="text-sm text-gray-600 mb-6">无不符合项</div>'}
+
+          <div class="mb-2 text-lg font-semibold">审查详情</div>
+          <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="bg-gray-100 text-gray-700 sticky top-0">
+              <tr>
+                <th class="text-left px-3 py-2">领域</th>
+                <th class="text-left px-3 py-2">子领域</th>
+                <th class="text-left px-3 py-2">项目</th>
+                <th class="text-left px-3 py-2">依据</th>
+                <th class="text-left px-3 py-2">必须性</th>
+                <th class="text-left px-3 py-2">风险</th>
+                <th class="text-left px-3 py-2">权重</th>
+                <th class="text-left px-3 py-2">结论</th>
+                <th class="text-left px-3 py-2">备注</th>
+                <th class="text-left px-3 py-2">证明文件</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${subject.checklist.map(x => `
+                <tr class="border-t align-top">
+                  <td class="px-3 py-2">${x.domain}</td>
+                  <td class="px-3 py-2">${x.subdomain}</td>
+                  <td class="px-3 py-2">${x.item}</td>
+                  <td class="px-3 py-2">${x.basis}</td>
+                  <td class="px-3 py-2">${x.mustFinal}</td>
+                  <td class="px-3 py-2">${x.riskLevel}</td>
+                  <td class="px-3 py-2">${x.weight}</td>
+                  <td class="px-3 py-2">${x.conclusion || '-'}</td>
+                  <td class="px-3 py-2">${x.remark || '-'}</td>
+                  <td class="px-3 py-2">${(x.files||[]).map(f=>f.name).join('、')||'-'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          </div>
+        </div>
+      `;
+    }
+
+    let selectedId = null;
+
+    function renderResults(list) {
+      const el = document.getElementById('results');
+      if (!list.length) { el.innerHTML = '<div class="text-gray-600">无匹配结果</div>'; return; }
+      el.innerHTML = `
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="bg-gray-100 text-gray-700">
+              <tr>
+                <th class="text-left px-3 py-2">主体编号</th>
+                <th class="text-left px-3 py-2">主体名称</th>
+                <th class="text-left px-3 py-2">报告内容</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map(s => `
+                <tr class="border-t">
+                  <td class="px-3 py-2">${s.id}</td>
+                  <td class="px-3 py-2">${s.basic.name}</td>
+                  <td class="px-3 py-2"><a href="#" data-id="${s.id}" class="text-blue-600 hover:underline">点击查看</a></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      el.querySelectorAll('a[data-id]').forEach(a => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const id = a.getAttribute('data-id');
+        const s = Proto.LS.get('proto_subjects', []).find(x=>x.id===id);
+        if (s) { renderReport(s); selectedId = id; document.getElementById('printBtn').disabled = false; }
+      }));
+    }
+
+    document.getElementById('searchBtn').addEventListener('click', () => {
+      const q = (document.getElementById('q').value||'').trim();
+      const subjects = Proto.LS.get('proto_subjects', []);
+      const list = subjects.filter(s => !q || s.id.includes(q) || (s.basic.name||'').includes(q));
+      renderResults(list);
+    });
+
+    document.getElementById('printBtn').addEventListener('click', () => {
+      const body = document.getElementById('reportBody');
+      if (!body) return alert('请先选择报告');
+      const w = window.open('', '_blank');
+      if (!w) { alert('请允许弹出窗口以导出PDF'); return; }
+      w.document.write('<html><head><meta charset="utf-8"/><title>报告导出</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"></head><body>'+ body.outerHTML +'</body></html>');
+      w.document.close();
+      w.onload = () => { w.focus(); w.print(); w.close(); };
+    });
+
+    // 允许通过 ?subjectId= 打开并直接渲染；若非已完成则禁用导出并提示
+    (function autoRender(){
+      const sid = Proto.getQueryParam('subjectId');
+      if (!sid) return;
+      const s = Proto.LS.get('proto_subjects', []).find(x=>x.id===sid);
+      if (!s) return;
+      renderReport(s);
+      const btn = document.getElementById('printBtn');
+      if (s.status !== '已完成') {
+        btn.disabled = true;
+        alert('该主体未完成风险审查');
+      } else {
+        btn.disabled = false;
+      }
+    })();
+  </script>
+</body>
+</html>
+
+

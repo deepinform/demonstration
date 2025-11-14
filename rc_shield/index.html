@@ -5,8 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>登录 - 合规审查原型</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-R4F23VTFVY"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-R4F23VTFVY');
+  </script>
 </head>
 <body class="min-h-screen bg-gray-50">
+  <div id="tosModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow p-6 w-[720px] max-w-[92vw]">
+      <div class="text-lg font-semibold mb-2">使用协议</div>
+      <div class="prose max-w-none text-sm text-gray-700 space-y-3">
+        <p>版权所有 © 2025 deepinform</p>
+        <p>本网站（包括但不限于网站设计、文字内容、图像、代码等所有元素）的全部知识产权均归 开发者本人 所有。</p>
+        <p>使用限制：未经deepinform书面许可，任何单位或个人不得将本网站的任何部分以任何形式（包括但不限于复制、传播、展示、修改、出售、出租等）用于商业目的。</p>
+        <p>交流与合作：我们欢迎任何合法的交流与合作意向。如果你对本网站的内容或服务有任何疑问、建议或合作需求，请通过以下方式联系我们：</p>
+        <ul class="list-disc pl-5">
+          <li>邮箱：<a class="text-blue-600 hover:underline" href="mailto:m18902001867@163.com">m18902001867@163.com</a></li>
+          <li>合作交流：<a class="text-blue-600 hover:underline" href="https://docs.qq.com/form/page/DU2xoSFdHbHVMSFBH" target="_blank" rel="noopener noreferrer">点击留言</a></li>
+        </ul>
+        <p>免责声明：本网站内容仅供参考，开发者与本公司不对内容的准确性、完整性或及时性作出任何明示或暗示的保证。对于因使用本网站内容而引起的任何损失或损害，不承担任何责任。</p>
+        <p>保留权利：开发者保留在不事先通知的情况下，随时修改或更新本网站内容的权利。</p>
+        <p>生效日期：本版权声明自发布之日起生效。</p>
+      </div>
+      <div class="mt-4 text-right space-x-3">
+        <button id="tosExit" class="px-4 py-2 border rounded text-red-700 border-red-300 hover:bg-red-50">退出访问</button>
+        <button id="tosAccept" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded">接受协议</button>
+      </div>
+    </div>
+  </div>
+
   <div class="max-w-md mx-auto mt-24 bg-white p-8 rounded-xl shadow">
     <h1 class="text-2xl font-semibold mb-6">登录</h1>
     <div class="space-y-4">
@@ -20,7 +51,34 @@
     </div>
   </div>
 
+  <div class="max-w-md mx-auto mt-6 text-center text-xs text-gray-600 px-4">
+    <div>版权所有 © 2025 deepinform</div>
+    <div class="mt-1">deepinform专注于金融与互联网领域的法律合规与风险内控管理</div>
+    <div class="mt-1">欢迎业务咨询与交流建联</div>
+    <div class="mt-1">联系方式：<a class="text-blue-600 hover:underline" href="mailto:m18902001867@163.com">m18902001867@163.com</a></div>
+    <div class="mt-1">联系表单：<a class="text-blue-600 hover:underline" href="https://docs.qq.com/form/page/DU2xoSFdHbHVMSFBH" target="_blank" rel="noopener noreferrer">点击留言</a></div>
+  </div>
+
   <script src="./assets/js/storage.js"></script>
+  <script>
+    (function tosInit(){
+      const modal = document.getElementById('tosModal');
+      const acceptBtn = document.getElementById('tosAccept');
+      const exitBtn = document.getElementById('tosExit');
+      // 每次访问登录页都显示协议，不做持久化记忆
+      if (acceptBtn) {
+        acceptBtn.addEventListener('click', () => {
+          if (modal) modal.classList.add('hidden');
+        });
+      }
+      if (exitBtn) {
+        exitBtn.addEventListener('click', () => {
+          try { window.open('', '_self'); window.close(); } catch(e) {}
+          window.location.replace('about:blank');
+        });
+      }
+    })();
+  </script>
   <script>
     (function init(){
       const users = Proto.LS.get('proto_users', []);

@@ -20,6 +20,10 @@ function renderSidebar(containerId) {
       <div class=\"absolute bottom-10 left-0 right-0 px-3 text-xs text-gray-600\">
         <div class=\"sb-label\">当前操作人：${user ? user.username : '-'}<\/div>
         <div class=\"sb-label\">角色：${role || '-'}<\/div>
+        <div class=\"sb-label mt-3\">版权所有 © 2025 deepinform<\/div>
+        <div class=\"sb-label mt-1\">deepinform专注于金融与互联网领域的法律合规与风险内控管理，欢迎业务咨询与交流建联<\/div>
+        <div class=\"sb-label mt-1\">联系方式：<a class=\"text-blue-600 hover:underline\" href=\"mailto:m18902001867@163.com\">m18902001867@163.com<\/a><\/div>
+        <div class=\"sb-label mt-1\">联系表单：<a class=\"text-blue-600 hover:underline\" href=\"https://docs.qq.com/form/page/DU2xoSFdHbHVMSFBH\" target=\"_blank\" rel=\"noopener noreferrer\">点击留言<\/a><\/div>
       </div>
       <div class=\"absolute bottom-2 left-0 right-0 flex justify-center\">
         <button id=\"sbToggleBottom\" class=\"w-8 h-8 rounded-full border flex items-center justify-center hover:bg-blue-50\" title=\"展开/收起\">⮜</button>
@@ -148,4 +152,84 @@ function isolateHorizontalScroll(el) {
 
 window.UI = { renderSidebar, statusBadge, riskBadge, isolateScroll, isolateHorizontalScroll };
 
+
+// Invitation code gate: enforce 90s limit until correct code is provided
+(function inviteCodeGate(){
+  try {
+    // Login页未引入本文件；本逻辑仅在业务页面生效
+    var OK_FLAG = 'rc_shield_invited_ok';
+    var REQUIRED_CODE = 'H11ZK14JDX';
+    var ok = (localStorage.getItem(OK_FLAG) === '1');
+
+    // 未通过邀请码前：每次进入业务页都彻底重置系统数据（包括登录状态、用户、模板等）
+    if (!ok) {
+      try {
+        localStorage.clear();
+        // 重新写入系统默认数据（默认用户/模板等）
+        if (typeof bootstrapDefaults === 'function') { bootstrapDefaults(); }
+      } catch(e) {}
+    }
+
+    // 已放行则不计时
+    if (ok) return;
+
+    // 90秒后弹窗
+    var t = setTimeout(function showInviteModal(){
+      // 若期间已通过则不再弹窗
+      if (localStorage.getItem(OK_FLAG) === '1') return;
+      var wrap = document.createElement('div');
+      wrap.innerHTML = '' +
+        '<div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">' +
+        '  <div class="bg-white rounded-xl shadow p-6 w-[720px] max-w-[92vw]">' +
+        '    <div class="text-lg font-semibold mb-2">访问受限</div>' +
+        '    <div class="text-sm text-gray-700 leading-6">' +
+        '      您已经超过了最大访问时间，如需体验产品完整功能，请输入邀请码，填写表单或者通过邮件联系我们以获取产品邀请码。' +
+        '    </div>' +
+        '    <div class="mt-3 text-sm text-gray-700">' +
+        '      邮箱：<a class="text-blue-600 hover:underline" href="mailto:m18902001867@163.com">m18902001867@163.com</a>' +
+        '      <span class="mx-2">｜</span>' +
+        '      <a class="text-blue-600 hover:underline" href="https://docs.qq.com/form/page/DU2xoSFdHbHVMSFBH" target="_blank" rel="noopener noreferrer">获取邀请码</a>' +
+        '    </div>' +
+        '    <div class="mt-4">' +
+        '      <label class="block text-sm text-gray-600 mb-1">邀请码</label>' +
+        '      <input id="inviteCodeInput" class="border rounded px-3 py-2 w-full" placeholder="请输入邀请码" />' +
+        '      <div id="inviteErr" class="text-xs text-red-600 mt-2 hidden">邀请码不正确</div>' +
+        '    </div>' +
+        '    <div class="mt-4 text-right space-x-2">' +
+        '      <button id="inviteExit" class="px-4 py-2 border rounded text-red-700 border-red-300 hover:bg-red-50">退出系统</button>' +
+        '      <button id="inviteSubmit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded">提交</button>' +
+        '    </div>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(wrap);
+
+      var input = document.getElementById('inviteCodeInput');
+      var err = document.getElementById('inviteErr');
+      var submit = document.getElementById('inviteSubmit');
+      var exitBtn = document.getElementById('inviteExit');
+
+      if (submit) {
+        submit.addEventListener('click', function(){
+          var v = (input && input.value ? String(input.value).trim() : '');
+          if (v === REQUIRED_CODE) {
+            try { localStorage.setItem(OK_FLAG, '1'); } catch(e) {}
+            if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+          } else {
+            if (err) err.classList.remove('hidden');
+          }
+        });
+      }
+      if (exitBtn) {
+        exitBtn.addEventListener('click', function(){
+          try { Proto.LS.remove('proto_current_user'); } catch(e) {}
+          try { window.open('', '_self'); window.close(); } catch(e) {}
+          window.location.replace('./index.html');
+        });
+      }
+    }, 60000);
+    // 不暴露定时器句柄；按需可取消
+  } catch (e) {
+    // fail open
+  }
+})();
 
